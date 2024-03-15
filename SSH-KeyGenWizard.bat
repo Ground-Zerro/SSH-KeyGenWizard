@@ -150,7 +150,7 @@ set "month=%datetime:~4,2%"
 set "day=%datetime:~6,2%"
 set "hour=%datetime:~8,2%"
 set "minute=%datetime:~10,2%"
-set "moment=%year%%month%%day
+set "moment=%year%%month%%day%"
 
 REM # Collect keys into the Keys folder
 :copykeytolocaldir
