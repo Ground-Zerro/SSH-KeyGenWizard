@@ -7,7 +7,7 @@ SSH-KeyGenWizard is a script designed to automate the process of generating and 
 - This script is designed primarily for Windows operating system users who do not have in-depth Linux knowledge.
 
 
-**It performs the following functions:**
+**It performs the following functions**
 - Loads the required software.
 - Generates OpenSSH keys using the EdDSA algorithm.
 - Converts the OpenSSH private key into PuTTY (.ppk) format.
