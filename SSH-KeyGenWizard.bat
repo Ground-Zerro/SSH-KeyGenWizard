@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-REM chcp 886 >nul
+REM chcp 886 > nul
 
 rem Check for spaces in the current directory path
 if "%CD: =%"=="%CD%" (goto :run) else (goto :space)
