@@ -25,3 +25,7 @@ SSH-KeyGenWizard is a script designed to automate the process of generating and 
 **At the end of the script provides the user with**
 - A private-public key pair in OpenSSH and PuTTY formats, saved in a separate folder.
 - A shortcut on the desktop for quick access to the server with one click (with authorization by private key).
+
+**To summarize**
+This script provides a convenient way to quickly and easily create SSH keys, copy them to a remote server and configure the connection, minimizing the need to manually perform multiple steps and use different software.
+It is easy to use and provides feedback to the user in case of errors.
