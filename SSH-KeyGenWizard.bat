@@ -96,7 +96,8 @@ echo 1 - Add new one to the existing ones.
 echo 2 - Delete all old keys and add the new one.
 echo.
 choice /C 12 /M "Your choice"
-if %errorlevel%==1 set "clrak=no"
+if %errorlevel%==1 set "clrak=>>"
+if %errorlevel%==2 set "clrak=>"
 
 REM # Copy the public key to the server, set chmod 600 permissions
 :copykeytosrv
@@ -105,17 +106,10 @@ plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "mkdir /home/%user%/.ssh"
 
 REM # extract the public key into a variable
 for /f "usebackq delims=" %%A in ("opnssh.pub") do set "pubkey=%%A"
-if "%clrak%"=="no" (goto :addpubkey)
 
-REM Clean authorized_keys and add the new key
-:clrpubkey
-plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S echo "%pubkey%" > /home/%user%/.ssh/authorized_keys"
-if %errorlevel%==1 goto :keycopyerr
-goto :chmo
-
-REM # Add the new public key to the existing ones
+REM # Add the new public key
 :addpubkey
-plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S echo "%pubkey%" >> /home/%user%/.ssh/authorized_keys"
+plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S echo "%pubkey%" %clrak% /home/%user%/.ssh/authorized_keys"
 if %errorlevel%==1 goto :keycopyerr
 
 REM # set chmod 600 permissions on authorized_keys
@@ -150,7 +144,7 @@ set "month=%datetime:~4,2%"
 set "day=%datetime:~6,2%"
 set "hour=%datetime:~8,2%"
 set "minute=%datetime:~10,2%"
-set "moment=%year%%month%%day
+set "moment=%year%%month%%day%"
 
 REM # Collect keys into the Keys folder
 :copykeytolocaldir
