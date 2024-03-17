@@ -30,4 +30,4 @@ SSH-KeyGenWizard is a script designed to automate the process of generating and 
 This script provides a convenient way to quickly and easily create SSH keys, copy them to a remote server and configure the connection, minimizing the need to manually perform multiple steps and use different software.
 It is easy to use and provides feedback to the user in case of errors.
 
-#### Tested on Windows 10/11, Windows 7 and earlier versions are not supported.
+#### Tested on Windows 10/11, Windows 8 and earlier versions are not supported.
