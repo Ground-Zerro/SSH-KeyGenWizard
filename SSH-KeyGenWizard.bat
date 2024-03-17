@@ -1,26 +1,42 @@
 @echo off
 setlocal enabledelayedexpansion
-REM chcp 886 >nul
+title SSH-KeyGenWizard
 
-rem Check for spaces in the current directory path
-if "%CD: =%"=="%CD%" (goto :run) else (goto :space)
+REM # Compatibility check
+:syschek
+REM # Path spaces check
+if not "%CD: =%"=="%CD%" goto :space
+REM # curl ?
+curl -h
+if %errorlevel%==1 (cls
+echo Unfortunately, your OS is not supported.
+pause
+exit)
+REM # Access rights check
+md "%ProgramFiles%\chk00"
+if %errorlevel%==1 (cls
+echo Please restart the script with administrator privileges.
+pause
+exit)
 
-rem # Variables
+REM # Start
 :run
+rem # Variables
 set "dir=%~dp0"
 set "tempdir=%~dp0temp\"
 
-REM # Cleanup
-:clear
+REM # Cleaning
+:clean
 rd /s /q %tempdir%
+rd /s /q "%ProgramFiles%\chk00"
 del /q /f public
 del /q /f private.ppk
 del /q /f opnssh.pub
 del /q /f opnssh
 cls
 
-REM Check for required software
-:softcheck
+REM Software check
+:softchek
 cd %dir%
 rd /s /q %tempdir% >nul 2>&1
 echo.
@@ -30,33 +46,30 @@ if not exist "libcrypto.dll" goto :downloadopnessh
 if not exist "ssh-keygen.exe" goto :downloadopnessh
 if not exist "plink.exe" goto :downloadplink
 
-REM # Generate Open SSH keys using the EdDSA algorithm
+REM # OpenSSH keys generation using EdDSA algorithm
+REM PS when using the system ssh-keygen, the script breaks..
 :keysgen
 echo.
-echo Enter a passphrase for the private key
+echo Enter a password for the private key (optional),
 echo  P.S. Characters will not be displayed when typing - this is normal.
-echo.
-REM Generating a new private key
-REM PS when using the system ssh-keygen the script breaks...
 ssh-keygen.exe -t ed25519 -f opnssh
 
-REM # Convert OpenSSH private key to Putty format
+REM # Converting OpenSSH private key to Putty format
+REM # PuTTYgen always leads to a graphical interface where further actions for an ordinary user are not obvious
+REM # ssh-keygen does not support converting EdDSA private key to any other
 echo.
-echo Enter the passphrase for the private key again (if it was set)
-echo.
+echo Enter the password of the private key again (if it was set)
 winscp.com /keygen opnssh /output=private.ppk
 
-REM # Extract the public key from the private one for Putty
-if exist public del /q /f
-echo ---- BEGIN SSH2 PUBLIC KEY ---->> "public"
+REM # Extracting public key from private for Putty
+echo ---- BEGIN SSH2 PUBLIC KEY ----> "public"
 set counter=0
 for /f "usebackq tokens=*" %%A IN ("private.ppk") DO @(set /a counter+=1) && @(if !counter! equ 3 (echo %%A>>"public")) && @(if !counter! GEQ 5 if !counter! LEQ 6 (echo %%A>>"public"))
 echo ---- END SSH2 PUBLIC KEY ---->> "public"
 
-REM Send RSA key to the server
+REM # Sending key to the server
 echo. 
 echo Copy the new key to the server?
-echo.
 choice /C YN /M "Y - yes, N - no"
 if %errorlevel%==2 goto :datetime
 
@@ -64,79 +77,79 @@ REM # Server data request
 :serverauth
 echo.
 set /p "host=Server IP address: "
-set /p "sshport=SSH port of the server: "
+set /p "sshport=Server SSH port: "
 set /p "user=User name: "
-set /p "pass=User password for %user%: "
-if not "%user%"=="root" (goto :connectcheck)
+set /p "pass=User password %user%: "
+if not "%user%"=="root" goto :connectchek
 
-REM
+REM # Not recommended under root
 :noroot
 echo.
-echo Executing as root is not recommended and has not been tested
-echo Are you sure you want to continue?
-echo.
-choice /C RN /M "R - continue as root, N - no, change the user"
+echo Running as root is not recommended and not tested
+choice /C RN /M "R - continue as root, N - change user"
 if %errorlevel%==2 goto :serverauth
 
-REM # connection check
-:connectcheck
+
+REM # Connection check
+:connectchek
 echo Checking connection...
 echo y | plink.exe -P %sshport% %user%@%host% -pw %pass% exit
 if %errorlevel%==1 goto :serverauth
-echo.
-echo SSH connection to %host% established.
-echo.
 set "srvauth=yes"
+echo.
+echo SSH connection with %host% established.
 
-REM Erase or leave old keys?
+REM Delete or keep old keys?
 echo.
-echo Leave old keys on the %host% host?
+echo Keep old keys on host %host%?
 echo.
-echo 1 - Add new one to the existing ones.
-echo 2 - Delete all old keys and add the new one.
+echo 1 - Add new to existing.
+echo 2 - Delete all old keys and add new.
 echo.
 choice /C 12 /M "Your choice"
 if %errorlevel%==1 set "clrak=>>"
 if %errorlevel%==2 set "clrak=>"
 
-REM # Copy the public key to the server, set chmod 600 permissions
+REM # Copy the public key to the server, set chmod 600
 :copykeytosrv
-REM create home/%user%/.ssh in case it doesn't exist
+REM creating home/%user%/.ssh in case it doesn't exist
 plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "mkdir /home/%user%/.ssh" > nul 2>&1
 
-REM # extract the public key into a variable
+REM # extracting the public key into a variable
 for /f "usebackq delims=" %%A in ("opnssh.pub") do set "pubkey=%%A"
 
-REM # Add the new public key
-:addpubkey
-plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S echo "%pubkey%" %clrak% /home/%user%/.ssh/authorized_keys"
-if %errorlevel%==1 goto :keycopyerr
+REM # Add new public key to the server, set chmod 600 on authorized_keys
+plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S sh -c 'echo %pubkey% %clrak% /home/%user%/.ssh/authorized_keys && chown %user% /home/%user%/.ssh/authorized_keys && chmod 600 /home/%user%/.ssh/authorized_keys'"
+if %errorlevel%==1 (set "keycopyerr=yes"
+echo.
+echo User %user% on server %host% does not have sufficient privileges
+echo to modify the file /home/%user%/.ssh/authorized_keys
+echo.
+echo New key not sent to host %host%.
+goto :datetime)
 
-REM # set chmod 600 permissions on authorized_keys
-:chmo
-plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S chmod 600 /home/%user%/.ssh/authorized_keys"
-if %errorlevel%==1 goto :keycopyerr
-
-REM Enable access only via RSA
+REM Enable access only by private key
 :passblock
 echo.
+echo Disable SSH password authentication on host %host% (for ALL users)?
+echo  P.S. SSH access will only be possible using the private key.
 echo.
-echo Disable password authentication on the %host% host (for ALL users)?
-echo  P.S. SSH access will only be possible via the private key.
-echo.
-choice /C YN /M "Y - disable password login, N - leave as is"
+choice /C BS /M "B - block password login, S - leave as is"
 if %errorlevel%==2 goto :datetime
 
-REM change PasswordAuthentication yes to PasswordAuthentication no in /etc/ssh/sshd_config on the host
+REM # Change PasswordAuthentication yes to PasswordAuthentication no in /etc/ssh/sshd_config on the host
 :denypassauth
 plink.exe -batch -P %sshport% %user%@%host% -pw %pass% "echo %pass% | sudo -S sed -i -E 's/#?PasswordAuthentication\s+(yes|no)/PasswordAuthentication no/g' /etc/ssh/sshd_config"
-if %errorlevel%==1 goto :denypassautherr
+if %errorlevel%==1 (echo.
+echo User %user% on server %host% does not have
+echo  sufficient privileges to modify these settings.
+goto :datetime)
 echo.
 echo.
-echo SSH settings on the %host% host have been changed, authentication will only be possible via the private key,
+echo SSH host %host% settings changed, authentication is only possible using the private key,
 echo  P.S. changes will take effect after its reboot.
 
-REM Get current date and time hardcore
+REM # Getting current date and time hardcore
 :datetime
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
 set "year=%datetime:~0,4%"
@@ -144,26 +157,28 @@ set "month=%datetime:~4,2%"
 set "day=%datetime:~6,2%"
 set "hour=%datetime:~8,2%"
 set "minute=%datetime:~10,2%"
-set "moment=%year%%month%%day%"
+set "moment=%year%%month%%day%-%hour%%minute%"
 
-REM # Collect keys into the Keys folder
+
+REM # Collecting keys in the Keys folder
 :copykeytolocaldir
 set "keydir=%dir%Keys\%moment%\"
 md %keydir% > nul 2>&1
+cd %dir% > nul 2>&1
 echo.
-echo Collecting keys into the Keys folder:
-move /y %dir%opnssh.pub %keydir%opnssh.pub
-move /y %dir%public %keydir%public
-move /y %dir%private.ppk %keydir%private.ppk
-move /y %dir%opnssh %keydir%opnssh
+echo Collecting keys in the Keys folder:
+move /y opnssh.pub %keydir%
+move /y public %keydir%
+move /y private.ppk %keydir%
+move /y opnssh %keydir%
 
 REM Putty?
-if "%srvauth%"=="yes" (echo.) else (goto :done)
-if "%keycopyerr%"=="yes" (goto :done)
-echo Create a desktop shortcut for quick access to %host% with one click?
-echo  P.S. PuTTY application will be automatically downloaded if not installed on this PC.
+if not "%srvauth%"=="yes" goto :done
+if "%keycopyerr%"=="yes" goto :done
 echo.
-choice /C YN /M "Y - create shortcut, N - I'll manage myself"
+echo Create a desktop shortcut for quick access to %host% in one click (authentication by private key)?
+echo  P.S. PuTTY application will be automatically downloaded if not installed on this PC.
+choice /C YN /M "Y - create shortcut, N - I'll handle it myself"
 if %errorlevel%==1 goto :puttytime
 goto :done
 
@@ -174,30 +189,38 @@ cd %tempdir%
 echo Downloading WinSCP...
 echo.
 curl -Lo WinSCP.zip https://winscp.net/download/WinSCP-6.3.1-Portable.zip
-tar -xf WinSCP.zip
+if %errorlevel%==0 (tar -xf WinSCP.zip
 copy /y WinSCP.com %dir%
 copy /y WinSCP.exe %dir%
-goto :softcheck
-
+goto :softchek)
+Echo Unable to download WinSCP, please try again later.
+pause
+exit
 :downloadplink
 md %tempdir% > nul 2>&1
 cd %tempdir%
 echo Downloading plink...
 echo.
 curl -Lo plink.exe https://the.earth.li/~sgtatham/putty/latest/w32/plink.exe
-copy /y plink.exe %dir%
-goto :softcheck
-
+if %errorlevel%==0 (copy /y plink.exe %dir%
+goto :softchek)
+Echo Unable to download plink, please try again later.
+pause
+exit
 :downloadopnessh
 md %tempdir% > nul 2>&1
 cd %tempdir%
 echo Downloading OpenSSH-Win32...
 echo.
 curl -Lo OpenSSH-Win32.zip https://github.com/PowerShell/Win32-OpenSSH/releases/download/v9.5.0.0p1-Beta/OpenSSH-Win32.zip
-tar -xf OpenSSH-Win32.zip
+if %errorlevel%==0 (tar -xf OpenSSH-Win32.zip
 copy /y OpenSSH-Win32\ssh-keygen.exe %dir%
+copy /y OpenSSH-Win32\ssh-add.exe %dir%
 copy /y OpenSSH-Win32\libcrypto.dll %dir%
-goto :softcheck
+goto :softchek)
+Echo Unable to download OpenSSH, please try again later.
+pause
+exit
 
 REM # Final information
 :done
@@ -205,108 +228,63 @@ echo.
 echo Operations completed, check the console for any errors.
 echo.
 echo New keys are located in the folder:
-echo  %keydir% - save them in a secure location.
+echo  %keydir% - keep them in a secure place.
 echo.
-pause
 pause
 setlocal disabledelayedexpansion
 exit
 
-
-REM # Insufficient privileges to modify the authorized_keys file
-:keycopyerr
-set "keycopyerr=yes"
-echo.
-echo User %user% on the %host% server does not have sufficient privileges
-echo to modify the /home/%user%/.ssh/authorized_keys file, possibly
-echo it was created by another user including root.
-echo Correct access privileges to it for SSH with RSA to work correctly
-echo.
-echo New key not sent to the %host% host.
-echo.
-goto :datetime
-
-REM # No access
-:denypassautherr
-echo.
-echo User %user% on the %host% server does not have sufficient
-echo privileges to modify these settings.
-echo.
-goto :datetime
-
 REM Putty
 :puttytime
-REM extract the path to the desktop of the current user into a variable
-for /f "delims=" %%A in ('powershell.exe -Command "(Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' -Name Desktop).Desktop"') do set "desktopFolder=%%A"
-REM Create folders
+if exist "%ProgramFiles%\PuTTY\putty.exe" goto :puttykeycopy
+REM # Download Putty to Program Files
+:downloadputty
 md "%ProgramFiles%\PuTTY" > nul 2>&1
 cd "%ProgramFiles%\PuTTY"
-REM download Putty to Program Files
-:downloadputty
-if exist "putty.exe" goto :puttykeycopy
 echo.
 echo Downloading PuTTY...
-echo.
 curl -Lo putty.exe https://the.earth.li/~sgtatham/putty/latest/w32/putty.exe
-REM copy the private key
+if %errorlevel% GEQ 1 (echo Unable to download PuTTY.
+goto :done)
+
+REM # Copy the private key
 :puttykeycopy
-echo Copying the private key to the Putty folder
+echo Copying the private key to the Putty folder:
 copy /y %keydir%private.ppk "%ProgramFiles%\PuTTY\private-%user%@%host%.ppk"
 
-REM shortcut
-set "vbsScript=%temp%\CreateShortcut.vbs"
-del /q /f "%vbsScript%" > nul 2>&1
-chcp 1251 >nul
-echo Set oWS = WScript.CreateObject("WScript.Shell") > "%vbsScript%"
-echo sLinkFile = "%desktopFolder%\Putty-%user%@%host%.lnk" >> "%vbsScript%"
-echo Set oLink = oWS.CreateShortcut(sLinkFile) >> "%vbsScript%"
-echo oLink.TargetPath = "%ProgramFiles%\PuTTY\putty.exe" >> "%vbsScript%"
-echo oLink.Arguments = "-ssh -P %sshport% -i ""%ProgramFiles%\PuTTY\private-%user%@%host%.ppk"" %user%@%host%" >> "%vbsScript%"
-echo oLink.Save >> "%vbsScript%"
-chcp 866 >nul
-cscript /nologo "%vbsScript%"
-if %errorlevel%==1 goto :linkerr
-del /q /f "%vbsScript%"
+REM # Shortcut
+powershell -Command "$desktopFolder = [Environment]::GetFolderPath('Desktop'); $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut(\"$desktopFolder\\Putty-%user%@%host%.lnk\"); $Shortcut.TargetPath = \"%ProgramFiles%\\PuTTY\\putty.exe\"; $Shortcut.Arguments = \"-ssh -P %sshport% -i `\"%ProgramFiles%\PuTTY\private-%user%@%host%.ppk`\" %user%@%host%\"; $Shortcut.Save()"
+if %errorlevel% GEQ 1 (echo.
+echo Failed to create shortcut on the desktop for user %username%...
+goto :done)
 echo.
-echo A shortcut has been created on the desktop: %user%@%host%.lnk
-echo.
-goto :done
-
-:linkerr
-REM just in case, for safety...
-del /q /f "%vbsScript%"
-REM create a bat file for PuTTY
-echo cd "C:\Program Files\PuTTY\"> "%desktopFolder%\Putty-%user%@%host%.bat"
-echo start putty.exe -ssh -P %sshport% -i "%ProgramFiles%\PuTTY\private-%user%@%host%.ppk" %user%@%host%>> "%desktopFolder%\Putty-%user%@%host%.bat"
-echo.
-echo since CScript is not available on this PC, instead of a shortcut, a bat file %user%@%host%.bat has been created
-echo.
+echo Desktop shortcut created for user %username%: %user%@%host%.lnk
 goto :done
 
 :space
-REM just in case, for safety...
+REM # For security reasons...
 title WARNING
 cls
 echo.
-echo The path to the current directory contains spaces, continuing
-echo    operation may lead to errors and system corruption...
+echo The path to the current directory contains spaces, continuing operation
+echo             may lead to errors and system damage...
 echo.
-echo ---------- Script execution stopped ----------
+echo ---------- Script execution aborted ----------
 echo.
-echo For OS security, move this bat file to a directory without spaces
-echo    in the path, for example: C:\Gen\ and run it from there.
+echo For OS security, move this bat file to a directory where there are
+echo  no spaces in the path, for example: C:\Gen\ and run it from there.
 echo.
 timeout /t 1 > nul
 title DANGER
 cls
 echo.
-echo The path to the current directory contains spaces, continuing
-echo    operation may lead to errors and system corruption...
+echo The path to the current directory contains spaces, continuing operation
+echo             may lead to errors and system damage...
 echo.
 echo ----------    close this window     ----------
 echo.
-echo For OS security, move this bat file to a directory without spaces
-echo    in the path, for example: C:\Gen\ and run it from there.
+echo For OS security, move this bat file to a directory where there are
+echo  no spaces in the path, for example: C:\Gen\ and run it from there.
 echo.
 timeout /t 1 > nul
 goto :space
